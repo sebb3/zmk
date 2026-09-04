@@ -60,7 +60,11 @@ static zmk_studio_Response handle_request(const zmk_studio_Request *req) {
     struct zmk_rpc_subsystem *sub = find_subsystem_for_choice(req->which_subsystem);
     if (!sub) {
         LOG_WRN("No subsystem found for choice %d", req->which_subsystem);
-        return ZMK_RPC_RESPONSE(meta, simple_error, zmk_meta_ErrorConditions_RPC_NOT_FOUND);
+        // Echo the request id so the host can match this error to its call.
+        zmk_studio_Response err_resp =
+            ZMK_RPC_RESPONSE(meta, simple_error, zmk_meta_ErrorConditions_RPC_NOT_FOUND);
+        err_resp.type.request_response.request_id = req->request_id;
+        return err_resp;
     }
 
     zmk_studio_Response resp = sub->func(sub, req);
