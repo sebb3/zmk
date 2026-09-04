@@ -176,6 +176,16 @@ static pb_ostream_t pb_ostream_for_tx_buf(void *user_data) {
     return stream;
 }
 
+// The transport drains rpc_tx_buf asynchronously and the buffer is small
+// (CONFIG_ZMK_STUDIO_RPC_TX_BUF_SIZE), so it is usually full right after the
+// body is encoded. A dropped framing byte leaves the host waiting forever for
+// the end of the frame, so wait for room like rpc_tx_buffer_write does.
+static void put_framing_byte(uint8_t framing_byte) {
+    while (ring_buf_put(&rpc_tx_buf, &framing_byte, 1) == 0) {
+        k_msleep(1);
+    }
+}
+
 static int send_response(const zmk_studio_Response *resp) {
     k_mutex_lock(&rpc_transport_mutex, K_FOREVER);
 
@@ -187,8 +197,7 @@ static int send_response(const zmk_studio_Response *resp) {
 
     pb_ostream_t stream = pb_ostream_for_tx_buf(user_data);
 
-    uint8_t framing_byte = FRAMING_SOF;
-    ring_buf_put(&rpc_tx_buf, &framing_byte, 1);
+    put_framing_byte(FRAMING_SOF);
 
     selected_transport->tx_notify(&rpc_tx_buf, 1, false, user_data);
 
@@ -202,8 +211,7 @@ static int send_response(const zmk_studio_Response *resp) {
         return -EINVAL;
     }
 
-    framing_byte = FRAMING_EOF;
-    ring_buf_put(&rpc_tx_buf, &framing_byte, 1);
+    put_framing_byte(FRAMING_EOF);
 
     selected_transport->tx_notify(&rpc_tx_buf, 1, true, user_data);
 
