@@ -24,6 +24,10 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/split/peripheral_layers.h>
 #endif
 
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
+#include <zmk/split/central.h>
+#endif
+
 #define DT_DRV_COMPAT zmk_underglow_layer
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
 
@@ -40,7 +44,20 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
     static _opts struct zmk_behavior_binding _name[ZMK_RGBMAP_LAYERS_LEN][ZMK_KEYMAP_LEN] = {      \
         DT_INST_FOREACH_CHILD_STATUS_OKAY_SEP(0, TRANSFORMED_RGB_LAYER, (, ))};
 
-RGBMAP_VAR(zmk_rgbmap, COND_CODE_1(IS_ENABLED(CONFIG_ZMK_KEYMAP_SETTINGS_STORAGE), (), (const)))
+// Runtime color edits and their persistence: on the central they come with
+// keymap settings storage (Studio); on a split peripheral they arrive from the
+// central over the split link and are persisted with the plain settings
+// subsystem the peripheral already has for its bonds.
+#define RGB_LAYER_RUNTIME                                                                          \
+    (IS_ENABLED(CONFIG_ZMK_KEYMAP_SETTINGS_STORAGE) ||                                             \
+     (IS_ENABLED(CONFIG_ZMK_SPLIT) && !IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL) &&                \
+      IS_ENABLED(CONFIG_SETTINGS)))
+
+#if RGB_LAYER_RUNTIME
+RGBMAP_VAR(zmk_rgbmap, )
+#else
+RGBMAP_VAR(zmk_rgbmap, const)
+#endif
 
 const int pixel_lookup_table[] = DT_INST_PROP(0, pixel_lookup);
 
@@ -103,7 +120,7 @@ uint8_t rgb_underglow_top_layer(void) {
 /*  Runtime layer color modification + settings persistence           */
 /* ------------------------------------------------------------------ */
 
-#if IS_ENABLED(CONFIG_ZMK_KEYMAP_SETTINGS_STORAGE)
+#if RGB_LAYER_RUNTIME
 
 #define RGB_LAYER_SETTINGS_KEY "rgb/layer/%d"
 #define RGB_LAYER_ENABLED_KEY "rgb/layer/en"
@@ -116,6 +133,14 @@ int zmk_rgb_layer_set_enabled(bool enabled) {
     layer_led_enabled = enabled;
     raise_zmk_underglow_color_changed(
         (struct zmk_underglow_color_changed){.layers = 0xFFFFFFFF, .wakeup = true});
+
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
+    int split_ret = zmk_split_central_update_rgb_layer_color(0, 0xFE, enabled ? 1 : 0);
+    if (split_ret < 0) {
+        LOG_WRN("Failed to forward RGB layer enabled state to peripherals: %d", split_ret);
+    }
+#endif
+
     return 0;
 }
 
@@ -139,6 +164,13 @@ int zmk_rgb_layer_set_binding(uint8_t layer_id, uint8_t key_pos, uint32_t color)
 
     raise_zmk_underglow_color_changed(
         (struct zmk_underglow_color_changed){.layers = BIT(layer_id), .wakeup = true});
+
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
+    int split_ret = zmk_split_central_update_rgb_layer_color(layer_id, key_pos, color);
+    if (split_ret < 0) {
+        LOG_WRN("Failed to forward RGB layer color to peripherals: %d", split_ret);
+    }
+#endif
 
     return 0;
 }
@@ -167,6 +199,13 @@ int zmk_rgb_layer_save(void) {
         LOG_ERR("Failed to save layer LED enabled: %d", ret);
         return ret;
     }
+
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
+    int split_ret = zmk_split_central_update_rgb_layer_color(0, 0xFF, 0);
+    if (split_ret < 0) {
+        LOG_WRN("Failed to tell peripherals to save RGB layer state: %d", split_ret);
+    }
+#endif
 
     return 0;
 }
@@ -238,6 +277,6 @@ int zmk_rgb_layer_settings_reset(void) {
     return 0;
 }
 
-#endif /* CONFIG_ZMK_KEYMAP_SETTINGS_STORAGE */
+#endif /* RGB_LAYER_RUNTIME */
 
 #endif /* DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT) */

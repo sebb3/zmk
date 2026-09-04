@@ -166,6 +166,61 @@ static ssize_t split_svc_update_layers(struct bt_conn *conn, const struct bt_gat
     return len;
 }
 
+struct zmk_split_rgb_layer_color_payload {
+    uint8_t layer_id;
+    uint8_t position;
+    uint32_t color;
+} __packed;
+
+// A save can write dozens of colors in a burst; queue them so none is lost
+// while the work item is still draining earlier ones.
+K_MSGQ_DEFINE(rgb_layer_color_msgq, sizeof(struct zmk_split_rgb_layer_color_payload), 32, 4);
+
+static void split_svc_update_rgb_layer_color_callback(struct k_work *work) {
+    struct zmk_split_rgb_layer_color_payload payload;
+
+    while (k_msgq_get(&rgb_layer_color_msgq, &payload, K_NO_WAIT) == 0) {
+        struct zmk_split_transport_central_command cmd = {
+            .type = ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_RGB_LAYER_COLOR,
+            .data = {.set_rgb_layer_color =
+                         {
+                             .layer_id = payload.layer_id,
+                             .position = payload.position,
+                             .color = payload.color,
+                         }}};
+
+        int err = zmk_split_transport_peripheral_command_handler(
+            zmk_split_transport_peripheral_bt(), cmd);
+        if (err) {
+            LOG_ERR("Failed to set RGB layer color: %d", err);
+        }
+    }
+}
+
+static K_WORK_DEFINE(split_svc_update_rgb_layer_color_work,
+                     split_svc_update_rgb_layer_color_callback);
+
+static ssize_t split_svc_update_rgb_layer_color(struct bt_conn *conn,
+                                                const struct bt_gatt_attr *attr, const void *buf,
+                                                uint16_t len, uint16_t offset, uint8_t flags) {
+    struct zmk_split_rgb_layer_color_payload payload;
+
+    if (offset != 0 || len != sizeof(payload)) {
+        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+    }
+
+    memcpy(&payload, buf, sizeof(payload));
+
+    if (k_msgq_put(&rgb_layer_color_msgq, &payload, K_NO_WAIT) != 0) {
+        LOG_WRN("RGB layer color queue full, dropping update");
+        return BT_GATT_ERR(BT_ATT_ERR_INSUFFICIENT_RESOURCES);
+    }
+
+    k_work_submit(&split_svc_update_rgb_layer_color_work);
+
+    return len;
+}
+
 #if IS_ENABLED(CONFIG_ZMK_INPUT_SPLIT)
 
 static void split_input_events_ccc(const struct bt_gatt_attr *attr, uint16_t value) {
@@ -235,7 +290,10 @@ BT_GATT_SERVICE_DEFINE(
 
     BT_GATT_CHARACTERISTIC(BT_UUID_DECLARE_128(ZMK_SPLIT_BT_UPDATE_LAYERS_UUID),
                            BT_GATT_CHRC_WRITE_WITHOUT_RESP, BT_GATT_PERM_WRITE_ENCRYPT, NULL,
-                           split_svc_update_layers, NULL), );
+                           split_svc_update_layers, NULL),
+    BT_GATT_CHARACTERISTIC(BT_UUID_DECLARE_128(ZMK_SPLIT_BT_UPDATE_RGB_LAYER_COLOR_UUID),
+                           BT_GATT_CHRC_WRITE_WITHOUT_RESP, BT_GATT_PERM_WRITE_ENCRYPT, NULL,
+                           split_svc_update_rgb_layer_color, NULL), );
 
 K_THREAD_STACK_DEFINE(service_q_stack, CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_STACK_SIZE);
 

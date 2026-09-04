@@ -186,6 +186,44 @@ int zmk_split_central_update_layers(uint32_t new_layers) {
     return 0;
 }
 
+int zmk_split_central_update_rgb_layer_color(uint8_t layer_id, uint8_t position, uint32_t color) {
+    if (!active_transport || !active_transport->api ||
+        !active_transport->api->get_available_source_ids || !active_transport->api->send_command) {
+        return -ENODEV;
+    }
+
+    uint8_t source_ids[ZMK_SPLIT_CENTRAL_PERIPHERAL_COUNT];
+
+    int ret = active_transport->api->get_available_source_ids(source_ids);
+
+    if (ret < 0) {
+        return ret;
+    }
+
+    struct zmk_split_transport_central_command command =
+        (struct zmk_split_transport_central_command){
+            .type = ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_RGB_LAYER_COLOR,
+            .data =
+                {
+                    .set_rgb_layer_color =
+                        {
+                            .layer_id = layer_id,
+                            .position = position,
+                            .color = color,
+                        },
+                },
+        };
+
+    for (size_t i = 0; i < ret; i++) {
+        ret = active_transport->api->send_command(source_ids[i], command);
+        if (ret < 0) {
+            return ret;
+        }
+    }
+
+    return 0;
+}
+
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING)
 
 int zmk_split_central_get_peripheral_battery_level(uint8_t source, uint8_t *level) {

@@ -67,6 +67,7 @@ enum zmk_split_transport_central_command_type {
     ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_PHYSICAL_LAYOUT,
     ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_HID_INDICATORS,
     ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_RGB_LAYERS,
+    ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_RGB_LAYER_COLOR,
 } __packed;
 
 struct zmk_split_transport_central_command {
@@ -92,5 +93,11 @@ struct zmk_split_transport_central_command {
         struct {
             uint32_t layers;
         } set_rgb_layers;
+
+        struct {
+            uint8_t layer_id;
+            uint8_t position;
+            uint32_t color;
+        } __packed set_rgb_layer_color;
     } data;
 } __packed;

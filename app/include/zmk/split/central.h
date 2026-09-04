@@ -48,3 +48,5 @@ int zmk_split_central_get_peripheral_battery_level(uint8_t source, uint8_t *leve
 #endif // IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING)
 
 int zmk_split_central_update_layers(uint32_t layers);
+
+int zmk_split_central_update_rgb_layer_color(uint8_t layer_id, uint8_t position, uint32_t color);

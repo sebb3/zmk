@@ -62,6 +62,7 @@ struct peripheral_slot {
 #endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
     uint16_t selected_physical_layout_handle;
     uint16_t update_layers_handle;
+    uint16_t update_rgb_layer_color_handle;
 
     uint8_t position_state[POSITION_STATE_DATA_LEN];
     uint8_t changed_positions[POSITION_STATE_DATA_LEN];
@@ -223,6 +224,7 @@ int release_peripheral_slot(int index) {
     slot->update_hid_indicators = 0;
 #endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
     slot->update_layers_handle = 0;
+    slot->update_rgb_layer_color_handle = 0;
 
     return 0;
 }
@@ -628,6 +630,10 @@ static uint8_t split_central_chrc_discovery_func(struct bt_conn *conn,
                                 BT_UUID_DECLARE_128(ZMK_SPLIT_BT_UPDATE_LAYERS_UUID))) {
             LOG_DBG("Found update Layers handle");
             slot->update_layers_handle = bt_gatt_attr_value_handle(attr);
+        } else if (!bt_uuid_cmp(((struct bt_gatt_chrc *)attr->user_data)->uuid,
+                                BT_UUID_DECLARE_128(ZMK_SPLIT_BT_UPDATE_RGB_LAYER_COLOR_UUID))) {
+            LOG_DBG("Found update RGB layer color handle");
+            slot->update_rgb_layer_color_handle = bt_gatt_attr_value_handle(attr);
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING)
         } else if (!bt_uuid_cmp(((struct bt_gatt_chrc *)attr->user_data)->uuid,
                                 BT_UUID_BAS_BATTERY_LEVEL)) {
@@ -716,6 +722,7 @@ static uint8_t split_central_chrc_discovery_func(struct bt_conn *conn,
 #endif // IS_ENABLED(CONFIG_ZMK_INPUT_SPLIT)
 
     subscribed = subscribed && slot->update_layers_handle;
+    subscribed = subscribed && slot->update_rgb_layer_color_handle;
 
     return subscribed ? BT_GATT_ITER_STOP : BT_GATT_ITER_CONTINUE;
 }
@@ -1120,6 +1127,23 @@ void split_central_split_run_callback(struct k_work *work) {
             }
             break;
 
+        case ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_RGB_LAYER_COLOR:
+            if (peripherals[payload_wrapper.source].update_rgb_layer_color_handle == 0) {
+                LOG_WRN("NO HANDLE TO SET RGB LAYER COLOR ON PERIPHERAL");
+                break;
+            }
+
+            err = bt_gatt_write_without_response(
+                peripherals[payload_wrapper.source].conn,
+                peripherals[payload_wrapper.source].update_rgb_layer_color_handle,
+                &payload_wrapper.cmd.data.set_rgb_layer_color,
+                sizeof(payload_wrapper.cmd.data.set_rgb_layer_color), true);
+
+            if (err) {
+                LOG_ERR("Failed to send RGB layer color to peripheral (err %d)", err);
+            }
+            break;
+
         default:
             LOG_WRN("Unsupported wrapped central command type %d", payload_wrapper.cmd.type);
             return;
@@ -1202,6 +1226,7 @@ static int split_central_bt_send_command(uint8_t source,
 
     switch (cmd.type) {
     case ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_RGB_LAYERS:
+    case ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_RGB_LAYER_COLOR:
     case ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_HID_INDICATORS:
     case ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_PHYSICAL_LAYOUT:
     case ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_INVOKE_BEHAVIOR: {

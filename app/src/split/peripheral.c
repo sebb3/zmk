@@ -23,6 +23,10 @@
 #endif
 #include <zmk/events/split_peripheral_layer_changed.h>
 
+#if IS_ENABLED(CONFIG_EXPERIMENTAL_RGB_LAYER)
+#include <zmk/rgb_underglow_layer.h>
+#endif
+
 #include <zephyr/init.h>
 #include <zephyr/logging/log.h>
 
@@ -71,6 +75,20 @@ int zmk_split_transport_peripheral_command_handler(
         return raise_zmk_split_peripheral_layer_changed(
             (struct zmk_split_peripheral_layer_changed){.layers = cmd.data.set_rgb_layers.layers});
     }
+#if IS_ENABLED(CONFIG_EXPERIMENTAL_RGB_LAYER)
+    case ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_RGB_LAYER_COLOR: {
+        switch (cmd.data.set_rgb_layer_color.position) {
+        case 0xFF:
+            return zmk_rgb_layer_save();
+        case 0xFE:
+            return zmk_rgb_layer_set_enabled(cmd.data.set_rgb_layer_color.color != 0);
+        default:
+            return zmk_rgb_layer_set_binding(cmd.data.set_rgb_layer_color.layer_id,
+                                             cmd.data.set_rgb_layer_color.position,
+                                             cmd.data.set_rgb_layer_color.color);
+        }
+    }
+#endif
     default:
         LOG_WRN("Unhandled command type %d", cmd.type);
         return -ENOTSUP;
