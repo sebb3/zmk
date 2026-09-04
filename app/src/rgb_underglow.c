@@ -82,6 +82,9 @@ enum rgb_underglow_effect {
     UNDERGLOW_EFFECT_NUMBER // Used to track number of underglow effects
 };
 
+BUILD_ASSERT(CONFIG_ZMK_RGB_UNDERGLOW_EFF_START < UNDERGLOW_EFFECT_NUMBER,
+             "ERROR: RGB underglow start effect is out of range for the enabled effects");
+
 struct rgb_underglow_state {
     struct zmk_led_hsb color;
     uint8_t animation_speed;
@@ -502,6 +505,24 @@ static void zmk_rgb_underglow_tick_handler(struct k_timer *timer) {
 
 K_TIMER_DEFINE(underglow_tick, zmk_rgb_underglow_tick_handler, NULL);
 
+#if IS_ENABLED(UNDERGLOW_LAYER_ENABLED)
+// The layer effect draws once instead of ticking, and at boot or wake that
+// single write can land before the strip's power rail is up. Redraw shortly
+// after so the colors are actually visible.
+static void zmk_rgb_underglow_layer_redraw_handler(struct k_work *work) {
+    if (state.on && state.layer_enabled) {
+        zmk_rgb_underglow_set_layer(rgb_underglow_top_layer(), true);
+    }
+}
+
+static K_WORK_DELAYABLE_DEFINE(underglow_layer_redraw_work,
+                               zmk_rgb_underglow_layer_redraw_handler);
+
+static void zmk_rgb_underglow_schedule_layer_redraw(void) {
+    k_work_reschedule(&underglow_layer_redraw_work, K_MSEC(1000));
+}
+#endif
+
 #if IS_ENABLED(CONFIG_SETTINGS)
 static int rgb_settings_set(const char *name, size_t len, settings_read_cb read_cb, void *cb_arg) {
     const char *next;
@@ -519,6 +540,7 @@ static int rgb_settings_set(const char *name, size_t len, settings_read_cb read_
                 if (state.layer_enabled) {
                     zmk_rgb_underglow_transient_on();
                     zmk_rgb_underglow_set_layer(rgb_underglow_top_layer(), true);
+                    zmk_rgb_underglow_schedule_layer_redraw();
                 }
 #else
                 k_timer_start(&underglow_tick, K_NO_WAIT, K_MSEC(50));
@@ -562,7 +584,11 @@ static int zmk_rgb_underglow_init(void) {
         current_effect : CONFIG_ZMK_RGB_UNDERGLOW_EFF_START,
         animation_step : 0,
         on : IS_ENABLED(CONFIG_ZMK_RGB_UNDERGLOW_ON_START),
+#if IS_ENABLED(UNDERGLOW_LAYER_ENABLED)
+        layer_enabled : (CONFIG_ZMK_RGB_UNDERGLOW_EFF_START == UNDERGLOW_EFFECT_LAYER_INDICATORS)
+#else
         layer_enabled : false
+#endif
     };
 
 #if IS_ENABLED(CONFIG_SETTINGS)
@@ -574,11 +600,17 @@ static int zmk_rgb_underglow_init(void) {
 #endif
 
     if (state.on) {
-        k_timer_start(&underglow_tick, K_NO_WAIT, K_MSEC(25));
+#if IS_ENABLED(UNDERGLOW_LAYER_ENABLED)
+        // The layer effect draws on layer changes and only ticks to fade; an
+        // unconditional tick here fades the fresh colors to black at once.
+        if (!state.layer_enabled)
+#endif
+            k_timer_start(&underglow_tick, K_NO_WAIT, K_MSEC(25));
     }
 #if IS_ENABLED(UNDERGLOW_LAYER_ENABLED)
     if (state.layer_enabled) {
         zmk_rgb_underglow_set_layer(rgb_underglow_top_layer(), true);
+        zmk_rgb_underglow_schedule_layer_redraw();
     }
 #endif
     return 0;
@@ -643,6 +675,12 @@ int zmk_rgb_underglow_on(void) {
     }
 #endif
     zmk_rgb_underglow_transient_on();
+#if IS_ENABLED(UNDERGLOW_LAYER_ENABLED)
+    // The layer effect only redraws on layer changes; show the current layer now.
+    if (state.layer_enabled) {
+        zmk_rgb_underglow_set_layer(rgb_underglow_top_layer(), true);
+    }
+#endif
     return zmk_rgb_underglow_save_state();
 }
 
@@ -1042,6 +1080,7 @@ static int rgb_underglow_auto_state(bool target_wake_state) {
 #if IS_ENABLED(UNDERGLOW_LAYER_ENABLED)
         if (state.layer_enabled) {
             zmk_rgb_underglow_set_layer(rgb_underglow_top_layer(), true);
+            zmk_rgb_underglow_schedule_layer_redraw();
             return 0;
         }
 #endif

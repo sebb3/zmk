@@ -333,7 +333,10 @@ config ZMK_RGB_UNDERGLOW_SPD_START
 
 config ZMK_RGB_UNDERGLOW_EFF_START
     int "RGB underglow start effect int value related to the effect enum list"
-    range 0 3
+    range 0 4
+    help
+      The animation effect active on boot, by index into the effect enum list.
+      4 is the per-layer effect, only meaningful when EXPERIMENTAL_RGB_LAYER is enabled.
 
 config ZMK_RGB_UNDERGLOW_ON_START
     bool "RGB underglow starts on by default"
