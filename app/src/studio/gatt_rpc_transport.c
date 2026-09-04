@@ -11,6 +11,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/sys/ring_buffer.h>
+#include <zephyr/sys/util.h>
 
 #include <zmk/ble.h>
 #include <zmk/event_manager.h>
@@ -97,7 +98,9 @@ static uint16_t get_notify_size_for_conn(struct bt_conn *conn) {
     uint16_t notify_size = 23; // Default MTU size unless negotiated higher
     struct bt_conn_info conn_info;
     if (conn && bt_conn_get_info(conn, &conn_info) >= 0) {
-        notify_size = conn_info.le.data_len->tx_max_len;
+        // A value larger than the ATT MTU minus its 3-byte header is rejected
+        // by bt_gatt_indicate, so respect both limits.
+        notify_size = MIN(conn_info.le.data_len->tx_max_len, bt_gatt_get_mtu(conn) - 3);
     }
 
     return notify_size;
